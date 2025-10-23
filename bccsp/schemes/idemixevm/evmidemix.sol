@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: UNLICENSED
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.22;
 
@@ -121,20 +120,14 @@ contract ZKATVerifier {
     }
 
     struct IdemixSignatureProof {
-        uint32 attrCount;               // number of attributes in credential
-        uint8[] revealedAttributes;     // mask denoting revealed attributes
+        uint32 attrCount;               // number of attributes in credential (not counting sk)
+        uint8[] revealedAttributes;     // mask denoting revealed attributes  (not countng sk)
+        // In the above, for now we assume that sk goes with h[0], so attr[i] goes with h[i+1]
         G1Point Nym;                    // pseudonym for secret key
         uint256 Nonce;                  // nonce
         PoKSignatureProof pokSignature; // main proof of knowledge of signature
         ProofG1 proofNym;               // linking proof for Nym
     }
-
-
-
-
-
-
-
 
     // Collect temporary variables in a struct to prevent
     // too many local variables error.
@@ -171,15 +164,9 @@ contract ZKATVerifier {
         G1Point ipaComm;
     }
 
-    struct tempVarsIdemix {
-        // Temporary variables for Idemix verification can be added here.
 
-    }
-
-    function attributesToSignatureMessages(
-        IdemixAttribute[] memory attributes,
-        uint8 skIndex
-    ) internal pure returns (SignatureMessage[] memory) {
+    function attributesToSignatureMessages(IdemixAttribute[] memory attributes, uint8 skIndex)
+    internal pure returns (SignatureMessage[] memory) {
         // All revealed messages are collected with their indices.
         // Revealed messages before sk, retain their original indices
         // Revealed messages after sk have their indices shifted by 1.
@@ -194,7 +181,7 @@ contract ZKATVerifier {
                 counter++;
             } else if (attributes[i].attributeType == 1) {
                 // Bytes attribute
-                bytes32 hashValue = sha256(attributes[i].value);
+                bytes memory hashValue = abi.encodePacked(sha256(attributes[i].value));
                 sigMsgs[counter] = SignatureMessage(hashtoZr(hashValue), i);
                 counter++;
             } else {
@@ -211,7 +198,7 @@ contract ZKATVerifier {
                 counter++;
             } else if (attributes[i].attributeType == 1) {
                 // Bytes attribute
-                bytes32 hashValue = sha256(attributes[i].value);
+                bytes memory hashValue = abi.encodePacked(sha256(attributes[i].value));
                 sigMsgs[counter] = SignatureMessage(hashtoZr(hashValue), i+1);
                 counter++;
             } else {
@@ -228,11 +215,10 @@ contract ZKATVerifier {
         return finalSigMsgs;
     }
 
-    function getChallengeBytes(
-        IdemixSignatureProof memory proof,
+    function getChallengeBytes(IdemixSignatureProof memory proof,
         mapping(uint8 => SignatureMessage) memory revealedMsgs,
-        IssuerPublicKey memory ipk
-    ) internal pure returns (bytes memory) {
+        IssuerPublicKey memory ipk)
+        internal pure returns (bytes memory) {
         // This function would compute the challenge bytes for Idemix verification.
         bytes memory challengeBytes = abi.encodePacked(
             proof.pokSignature.aPrime.x, proof.pokSignature.aPrime.y,
@@ -244,7 +230,7 @@ contract ZKATVerifier {
         );
 
         for (uint8 i=0; i < ipk.messageCount; i++) {
-            if (revealedMsgs[i] != SignatureMessage(0,0)) {
+            if (revealedMsgs[i].index != 0) {
                 challengeBytes = abi.encodePacked(challengeBytes, ipk.h[i].x, ipk.h[i].y);
             }
         }
@@ -256,7 +242,7 @@ contract ZKATVerifier {
     function verifyIdeMixCred(
         IssuerPublicKey memory ipk,
         IdemixSignatureProof memory proof,
-        bytes memory msg,
+        bytes memory message,
         IdemixAttribute[] memory attributes,
         uint8 skIndex
     ) external view returns (bool) {
@@ -270,19 +256,18 @@ contract ZKATVerifier {
 
         bytes memory hashBytes = getChallengeBytes(proof, revealedMsgs, ipk);
         challengeBytes = abi.encodePacked(challengeBytes, hashBytes, proof.Nym.x, proof.Nym.y);
-        bytes memory proofNonce = abi.encodePacked(abi.encodePacked(sha256(msg)));
-        challengeBytes = abi.encodePacked(challengeBytes, proofNonce);
-        uint256 proofChallenge = hashtoZr(abi.encodePacked(sha256(challengeBytes)));
+        bytes memory proofNonceBytes = abi.encodePacked(abi.encodePacked(sha256(message)));
+        uint256 proofChallenge = hashtoZr(proofNonceBytes);
+        challengeBytes = abi.encodePacked(proofChallenge, proof.Nonce);
+        proofChallenge = hashtoZr(challengeBytes);
 
-        // compute the third message
-
-
-
-
-
-
-
-
+        // compare with responses
+        // check correctness of Nym Proof
+        G1Point[] memory bases = [ ipk.h0, ipk.h[skIndex] ];
+        G1Point memory left = ecMul(proof.Nym, proofChallenge);
+        left = ecMulVec(bases, proof.proofNym.responses, left);
+        require(left.x == proof.proofNym.commitment.x, "Incorrect Nym proof");
+        require(left.y == proof.proofNym.commitment.y, "Incorrect Nym proof");
 
         return true;
     }
@@ -486,6 +471,18 @@ contract ZKATVerifier {
         uint256 r = toUint256(b,0);
         r = r % GROUP_ORDER;
         return r;
+    }
+
+    // Convenience routine to compute scalar product over G1
+    function ecMulVec(G1Point[] memory points, uint256[] memory scalars, G1Point memory initial) pure internal returns (G1Point memory) {
+        require(points.length == scalars.length, "Vector sizes mismatch in scalar product");
+
+        G1Point memory sum = initial;
+        for(uint32 i=0; i < points.length; i++) {
+            initial = ecAdd(initial, ecMul(points[i], scalars[i]));
+        }
+
+        return sum;
     }
 
     /// A test function to check scalar multiplication.
