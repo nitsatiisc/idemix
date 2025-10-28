@@ -6,7 +6,7 @@ require (
 	github.com/IBM/idemix/bccsp/schemes/aries v0.0.0-20250313153527-832db18b9478
 	github.com/IBM/idemix/bccsp/schemes/weak-bb v0.0.0-20250313153527-832db18b9478
 	github.com/IBM/idemix/bccsp/types v0.0.0-20250313153527-832db18b9478
-	github.com/IBM/mathlib v0.0.3-0.20241219051532-81539b287cf5
+	github.com/IBM/mathlib v0.0.3-0.20250709075152-a138079496c3
 	github.com/alecthomas/kingpin/v2 v2.4.0
 	github.com/golang/protobuf v1.5.4
 	github.com/hyperledger/aries-bbs-go v0.0.0-20240528084656-761671ea73bc
@@ -20,7 +20,7 @@ require (
 	google.golang.org/grpc v1.76.0
 )
 
-replace github.com/hyperledger/aries-bbs-go => /home/nitinsingh/go-overrides/github.com/hyperledger/aries-bbs-go
+replace github.com/consensys/gnark-crypto => github.com/consensys/gnark-crypto v0.18.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
@@ -49,3 +49,5 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/hyperledger/aries-bbs-go => github.com/nitsatiisc/aries-bbs-go v0.0.0-20251026133707-5593848f603e

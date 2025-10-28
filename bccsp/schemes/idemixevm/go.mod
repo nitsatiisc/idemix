@@ -1,30 +1,27 @@
-module github.com/IBM/idemix/bccsp/schemes/aries
+module github.com/IBM/idemix/bccsp/schemes/idemixevm
 
 go 1.25.3
 
+require github.com/ethereum/go-ethereum v1.16.5
+
 require (
-	github.com/IBM/idemix/bccsp/schemes/idemixevm v0.0.0-00010101000000-000000000000
-	github.com/IBM/idemix/bccsp/schemes/weak-bb v0.0.0-20241220065751-dc7206770307
+	github.com/IBM/idemix/bccsp/schemes/aries v0.0.0-20250313153527-832db18b9478
 	github.com/IBM/idemix/bccsp/types v0.0.0-20241220065751-dc7206770307
-	github.com/IBM/mathlib v0.0.3-0.20250709075152-a138079496c3
-	github.com/ethereum/go-ethereum v1.16.5
-	github.com/golang/protobuf v1.5.4
+	github.com/IBM/mathlib v0.0.3-0.20241219051532-81539b287cf5
 	github.com/hyperledger/aries-bbs-go v0.0.0-20240528091251-e950615f2e45
 	github.com/pkg/errors v0.9.1
-	github.com/stretchr/testify v1.11.1
 )
 
-replace github.com/IBM/idemix/bccsp/schemes/idemixevm => ../idemixevm
-
-replace github.com/consensys/gnark-crypto => github.com/consensys/gnark-crypto v0.18.0
+replace github.com/hyperledger/aries-bbs-go => /home/nitinsingh/go-overrides/github.com/hyperledger/aries-bbs-go
 
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
+	github.com/IBM/idemix/bccsp/schemes/weak-bb v0.0.0-20241220065751-dc7206770307 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.24.0 // indirect
+	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
@@ -51,6 +48,7 @@ require (
 	github.com/gofrs/flock v0.12.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
@@ -79,7 +77,6 @@ require (
 	github.com/pion/stun/v2 v2.0.0 // indirect
 	github.com/pion/transport/v2 v2.2.1 // indirect
 	github.com/pion/transport/v3 v3.0.1 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.15.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
@@ -95,16 +92,13 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df // indirect
-	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/hyperledger/aries-bbs-go => github.com/nitsatiisc/aries-bbs-go v0.0.0-20251026133707-5593848f603e

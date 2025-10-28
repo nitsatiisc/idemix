@@ -7,14 +7,20 @@ SPDX-License-Identifier: Apache-2.0
 package aries_test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"math/big"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/IBM/idemix/bccsp/schemes/aries"
+	"github.com/IBM/idemix/bccsp/schemes/idemixevm"
 	"github.com/IBM/idemix/bccsp/types"
 	math "github.com/IBM/mathlib"
+	"github.com/ethereum/go-ethereum"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/aries-bbs-go/bbs"
 	"github.com/stretchr/testify/assert"
@@ -1349,4 +1355,157 @@ func TestSigner(t *testing.T) {
 
 	_, _, err = signer.Sign(cred, sk, Nym, RNmy, ipk, idemixAttrs, []byte("silliness"), rhIndex, eidIndex, nil, types.EidNymRhNym, nil)
 	assert.EqualError(t, err, "cannot create idemix signature: disclosure of enrollment ID or RH requested for EidNymRhNym signature")
+}
+
+func TestEvmSigner(t *testing.T) {
+	curve := math.Curves[math.BN254]
+
+	credProto := &aries.Cred{
+		BBS:   bbs.New(curve),
+		Curve: curve,
+	}
+	issuerProto := &aries.Issuer{curve}
+
+	attrs := []string{
+		"attr1",
+		"attr2",
+		"eid",
+		"rh",
+	}
+
+	rhIndex, eidIndex := 3, 2
+
+	isk, err := issuerProto.NewKey(attrs)
+	assert.NoError(t, err)
+	assert.NotNil(t, isk)
+
+	ipk := isk.Public()
+
+	cr := &aries.CredRequest{
+		Curve: curve,
+	}
+
+	rand, err := curve.Rand()
+	assert.NoError(t, err)
+
+	userProto := &aries.User{
+		Curve: curve,
+		Rng:   rand,
+	}
+
+	sk, err := userProto.NewKey()
+	assert.NoError(t, err)
+
+	credReq, blinding, err := cr.Blind(sk, ipk, []byte("la la land"))
+	assert.NoError(t, err)
+
+	err = cr.BlindVerify(credReq, ipk, []byte("la la land"))
+	assert.NoError(t, err)
+
+	idemixAttrs := []types.IdemixAttribute{
+		{
+			Type:  types.IdemixBytesAttribute,
+			Value: []byte("msg1"),
+		},
+		{
+			Type:  types.IdemixIntAttribute,
+			Value: 34,
+		},
+		{
+			Type:  types.IdemixBytesAttribute,
+			Value: []byte("nymeid"),
+		},
+		{
+			Type:  types.IdemixBytesAttribute,
+			Value: []byte("nymrh"),
+		},
+	}
+
+	cred, err := credProto.Sign(isk, credReq, idemixAttrs)
+	assert.NoError(t, err)
+
+	cred, err = cr.Unblind(cred, blinding)
+	assert.NoError(t, err)
+
+	err = credProto.Verify(sk, ipk, cred, idemixAttrs)
+	assert.NoError(t, err)
+
+	signer := &aries.Signer{
+		Curve: curve,
+		Rng:   rand,
+	}
+
+	idemixAttrs = []types.IdemixAttribute{
+		{
+			Type:  types.IdemixBytesAttribute,
+			Value: []byte("msg1"),
+		},
+		{
+			Type:  types.IdemixIntAttribute,
+			Value: 34,
+		},
+		{
+			Type: types.IdemixHiddenAttribute,
+		},
+		{
+			Type: types.IdemixHiddenAttribute,
+		},
+	}
+
+	Nym, RNmy, err := userProto.MakeNym(sk, ipk)
+	assert.NoError(t, err)
+
+	// commit := bbs.NewProverCommittingG1()
+	// commit.Commit(ipk.(*aries.IssuerPublicKey).PKwG.H0)
+	// commit.Commit(ipk.(*aries.IssuerPublicKey).PKwG.H[0])
+	// commitNym := commit.Finish()
+
+	// chal := curve.NewRandomZr(rand)
+
+	// proof := commitNym.GenerateProof(chal, []*math.Zr{RNmy, sk})
+	// err = proof.Verify([]*math.G1{ipk.(*aries.IssuerPublicKey).PKwG.H0, ipk.(*aries.IssuerPublicKey).PKwG.H[0]}, Nym, chal)
+	// assert.NoError(t, err)
+
+	////////////////////
+	// base signature //
+	////////////////////
+
+	sig, _, err := signer.Sign(cred, sk, Nym, RNmy, ipk, idemixAttrs, []byte("silliness"), rhIndex, eidIndex, nil, types.Standard, nil)
+	assert.NoError(t, err)
+
+	err = signer.Verify(ipk, sig, []byte("silliness"), idemixAttrs, rhIndex, eidIndex, 0, nil, 0, types.Basic, nil)
+	assert.NoError(t, err)
+
+	sigSol, sig, _, err := signer.SignEvm(cred, sk, Nym, RNmy, ipk, idemixAttrs, []byte("silliness"), rhIndex, eidIndex, nil, types.Standard, nil)
+	err = signer.Verify(ipk, sig, []byte("silliness"), idemixAttrs, rhIndex, eidIndex, 0, nil, 0, types.Basic, nil)
+	assert.NoError(t, err)
+	ipkSol := aries.MakeIdemixIssuerKey(ipk.(*aries.IssuerPublicKey))
+	fmt.Printf("ipk.H.len() %v\n", len(ipkSol.H))
+	attrsSol := aries.MakeAttributes(idemixAttrs)
+
+	fmt.Printf("proof.RevealedAttrsLen %v\n", len(sigSol.RevealedAttributes))
+
+	fmt.Printf("attrsSol.len() %v\n", len(attrsSol))
+
+	abi, err := idemixevm.IdemixevmMetaData.GetAbi()
+	assert.NoError(t, err)
+	input, err := abi.Pack("verifyIdeMixCred", ipkSol, sigSol, []byte("silliness"), attrsSol, uint8(0))
+	//input, err = abi.Pack("testAttributes", attrsSol)
+	assert.NoError(t, err)
+	backend, _, addr, auth, err := aries.CreateInstance()
+	assert.NoError(t, err)
+	// Prepare call message
+	msg := ethereum.CallMsg{
+		From:     auth.From,
+		To:       addr,
+		GasPrice: big.NewInt(0),
+		Data:     input,
+	}
+
+	// Estimate gas
+	start := time.Now()
+	gasUsed, err := backend.EstimateGas(context.Background(), msg)
+	assert.NoError(t, err)
+	fmt.Println("Time for Execution on EVM: ", time.Since(start))
+	fmt.Println("Gas used: ", gasUsed)
 }

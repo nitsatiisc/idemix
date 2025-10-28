@@ -89,6 +89,8 @@ contract ZKATVerifier {
 
     // Define types for Idemix Signature verification
     struct IssuerPublicKey {
+        G1Point g;              // generator of G1
+        G2Point k;              // generator of G2
         G2Point w;              // this is the verification key
         G1Point h0;             // this is the generator corresponding to "s"
         G1Point [] h;           // these are generators for messages
@@ -97,7 +99,8 @@ contract ZKATVerifier {
 
     struct IdemixAttribute {
         uint8 attributeType; // 0 = integer, 1 = bytes, 2 = hidden
-        bytes value;        // big-endian encoding of integer or bytes
+        bytes valueBytes;    // byte attribute
+        uint256 valueInt;    // int attribute
     }
 
     struct SignatureMessage {
@@ -121,7 +124,7 @@ contract ZKATVerifier {
 
     struct IdemixSignatureProof {
         uint32 attrCount;               // number of attributes in credential (not counting sk)
-        uint8[] revealedAttributes;     // mask denoting revealed attributes  (not countng sk)
+        uint8[] revealedAttributes;     // mask denoting revealed attributes
         // In the above, for now we assume that sk goes with h[0], so attr[i] goes with h[i+1]
         G1Point Nym;                    // pseudonym for secret key
         uint256 Nonce;                  // nonce
@@ -164,42 +167,27 @@ contract ZKATVerifier {
         G1Point ipaComm;
     }
 
+    function testAttributes(IdemixAttribute[] memory attributes) external pure returns (uint256) {
+        return attributes.length;
+    }
 
+    // All revealed messages are collected with their indices.
+    // Revealed messages before sk, retain their original indices
+    // Revealed messages after sk have their indices shifted by 1.
+    // skIndex allows us to support secret key at any position.
     function attributesToSignatureMessages(IdemixAttribute[] memory attributes, uint8 skIndex)
     internal pure returns (SignatureMessage[] memory) {
-        // All revealed messages are collected with their indices.
-        // Revealed messages before sk, retain their original indices
-        // Revealed messages after sk have their indices shifted by 1.
-        // skIndex allows us to support secret key at any position.
         SignatureMessage[] memory sigMsgs = new SignatureMessage[](attributes.length);
         uint8 counter = 0;
-        for (uint8 i = 0; i < skIndex; i++) {
+        for (uint i = 0; i < attributes.length; i++) {
             if (attributes[i].attributeType == 0) {
                 // Integer attribute
-                uint256 intValue = toUint256(attributes[i].value, 0);
-                sigMsgs[counter] = SignatureMessage(intValue, i);
+                sigMsgs[counter] = SignatureMessage(attributes[i].valueInt, uint8(i+1));
                 counter++;
             } else if (attributes[i].attributeType == 1) {
                 // Bytes attribute
-                bytes memory hashValue = abi.encodePacked(sha256(attributes[i].value));
-                sigMsgs[counter] = SignatureMessage(hashtoZr(hashValue), i);
-                counter++;
-            } else {
-                // Hidden attribute
-            }
-
-        }
-
-        for (uint8 i = skIndex; i < attributes.length; i++) {
-            if (attributes[i].attributeType == 0) {
-                // Integer attribute
-                uint256 intValue = toUint256(attributes[i].value, 0);
-                sigMsgs[counter] = SignatureMessage(intValue, i+1);
-                counter++;
-            } else if (attributes[i].attributeType == 1) {
-                // Bytes attribute
-                bytes memory hashValue = abi.encodePacked(sha256(attributes[i].value));
-                sigMsgs[counter] = SignatureMessage(hashtoZr(hashValue), i+1);
+                bytes memory hashBytes = abi.encodePacked(sha256(attributes[i].valueBytes));
+                sigMsgs[counter] = SignatureMessage(hashtoZr(hashBytes), uint8(i+1));
                 counter++;
             } else {
                 // Hidden attribute
@@ -207,30 +195,32 @@ contract ZKATVerifier {
         }
 
         // truncate sigMsgs to actual size
-        SignatureMessage[] memory finalSigMsgs = new SignatureMessage[](counter);
-        for (uint8 i = 0; i < counter; i++) {
+        SignatureMessage[] memory finalSigMsgs = new SignatureMessage[](attributes.length);
+        for (uint i = 0; i < counter; i++) {
             finalSigMsgs[i] = sigMsgs[i];
         }
 
         return finalSigMsgs;
     }
 
+
     function getChallengeBytes(IdemixSignatureProof memory proof,
-        mapping(uint8 => SignatureMessage) memory revealedMsgs,
+        uint8[] memory revealedMsgs,
         IssuerPublicKey memory ipk)
         internal pure returns (bytes memory) {
         // This function would compute the challenge bytes for Idemix verification.
         bytes memory challengeBytes = abi.encodePacked(
-            proof.pokSignature.aPrime.x, proof.pokSignature.aPrime.y,
             proof.pokSignature.aBar.x, proof.pokSignature.aBar.y,
+            proof.pokSignature.aPrime.x, proof.pokSignature.aPrime.y,
             ipk.h0.x, ipk.h0.y,
-            proof.pokSignature.proofVC1.commitment.x, proof.pokSignature.proofVC1.y,
+            proof.pokSignature.proofVC1.commitment.x, proof.pokSignature.proofVC1.commitment.y,
             proof.pokSignature.d.x, proof.pokSignature.d.y,
             ipk.h0.x, ipk.h0.y
         );
 
-        for (uint8 i=0; i < ipk.messageCount; i++) {
-            if (revealedMsgs[i].index != 0) {
+        require(ipk.h.length >= revealedMsgs.length, "Insufficient Generators");
+        for (uint8 i=0; i < revealedMsgs.length; i++) {
+            if (revealedMsgs[i] != 1) {
                 challengeBytes = abi.encodePacked(challengeBytes, ipk.h[i].x, ipk.h[i].y);
             }
         }
@@ -239,6 +229,69 @@ contract ZKATVerifier {
         return challengeBytes;
     }
 
+    // This function verifies the proof of knowledge of a valid BBS+ signature
+    // proof - contains the proof of knowledge
+    // ipk   - contains issuer public key with generators
+    // proofChallenge - challenge "coming" from the outer function
+    // sigMsgs - revealed messages and their indices w.r.t generators.
+    function verifySignatureProof(
+        IdemixSignatureProof memory proof,
+        IssuerPublicKey memory ipk,
+        uint256 proofChallenge,
+        SignatureMessage[] memory sigMsgs
+    ) internal view returns (bool) {
+
+        // verify pairing
+        //bool result = pairingEq(proof.pokSignature.aPrime, ipk.w, proof.pokSignature.aBar, ipk.k);
+        //require(result, "pairing check failed");
+
+        // verify proofVC1 : (-e).A' + (r2).h_0 = \bar{A}/d
+        G1Point memory comm1 = ecSub(proof.pokSignature.aBar, proof.pokSignature.d);
+        G1Point[] memory bases = new G1Point[](2);
+        bases[0] = proof.pokSignature.aPrime;
+        bases[1] = ipk.h0;
+        G1Point memory left = ecMul(comm1, proofChallenge);
+        left = ecMulVec(bases, proof.pokSignature.proofVC1.responses,left);
+        require(left.x == proof.pokSignature.proofVC1.commitment.x, "proofVC1 failed");
+        require(left.y == proof.pokSignature.proofVC1.commitment.y, "proofVC1 failed");
+
+        // verify proofVC2: (-r3).d + (s').h0 + \sum_{i\in H} (m_i).h[i] = -(g1 + \sum_{i\in D} (m_i).h[i])
+        uint hiddenAttrs = 0;
+        for(uint i=0; i < proof.revealedAttributes.length; i++) {
+            if (proof.revealedAttributes[i] == 0) {
+                hiddenAttrs++;
+            }
+        }
+
+        G1Point[] memory hiddenBases = new G1Point[](hiddenAttrs+2);
+        hiddenBases[0] = proof.pokSignature.d;
+        hiddenBases[1] = ipk.h0;
+
+        hiddenAttrs = 0;
+        for(uint i=0; i < proof.revealedAttributes.length; i++) {
+            if (proof.revealedAttributes[i] == 0) {
+                hiddenBases[2+hiddenAttrs] = ipk.h[i];
+                hiddenAttrs++;
+            }
+        }
+        require(hiddenBases.length == hiddenAttrs+2, "mismatch in hidden attributes and bases");
+
+        // compute proofVC2 commitment
+        G1Point memory comm2 = ipk.g;
+        for(uint i=0; i < sigMsgs.length; i++) {
+            comm2 = ecAdd(comm2, ecMul(ipk.h[sigMsgs[i].index], sigMsgs[i].value));
+        }
+
+        comm2 = negate(comm2);
+        left = ecMul(comm2, proofChallenge);
+        left = ecMulVec(hiddenBases, proof.pokSignature.proofVC2.responses, left);
+
+        require(left.x == proof.pokSignature.proofVC2.commitment.x, "Invalid proofVC2");
+        require(left.y == proof.pokSignature.proofVC2.commitment.y, "Invalid proofVC2");
+        return true;
+    }
+
+
     function verifyIdeMixCred(
         IssuerPublicKey memory ipk,
         IdemixSignatureProof memory proof,
@@ -246,30 +299,42 @@ contract ZKATVerifier {
         IdemixAttribute[] memory attributes,
         uint8 skIndex
     ) external view returns (bool) {
-        // Implementation of Idemix credential verification would go here.
-        bytes memory challengeBytes = abi.encodePacked(SIGN_LABEL);
-        SignatureMessage[] memory sigMsgs = attributesToSignatureMessages(attributes, skIndex);
-        mapping(uint8 => SignatureMessage) memory revealedMsgs;
-        for (uint8 i=0; i < proof.revealedAttributes; i++) {
-            revealedMsgs[proof.revealedAttributes[i]] = sigMsgs[i];
-        }
+        require(attributes.length > 0, "attributes empty");
+        require(ipk.h.length > 0, "ipk empty");
+        require(attributes.length + 1 <= ipk.h.length, "Insufficient generators");
+        bytes memory challengeBytes = abi.encodePacked("sign");
 
-        bytes memory hashBytes = getChallengeBytes(proof, revealedMsgs, ipk);
-        challengeBytes = abi.encodePacked(challengeBytes, hashBytes, proof.Nym.x, proof.Nym.y);
-        bytes memory proofNonceBytes = abi.encodePacked(abi.encodePacked(sha256(message)));
-        uint256 proofChallenge = hashtoZr(proofNonceBytes);
+        SignatureMessage[] memory sigMsgs = attributesToSignatureMessages(attributes, skIndex);
+        bytes memory hashBytes = getChallengeBytes(proof, proof.revealedAttributes, ipk);
+        challengeBytes = abi.encodePacked(challengeBytes, hashBytes);
+
+        challengeBytes = abi.encodePacked(challengeBytes,
+            proof.Nym.x,
+            proof.Nym.y,
+            proof.proofNym.commitment.x,
+            proof.proofNym.commitment.y
+        );
+
+        uint256 proofNonce = hashtoZr(abi.encodePacked(sha256(message)));
+        challengeBytes = abi.encodePacked(challengeBytes, proofNonce);
+        uint256 proofChallenge = hashtoZr(abi.encodePacked(sha256(challengeBytes)));
+
         challengeBytes = abi.encodePacked(proofChallenge, proof.Nonce);
-        proofChallenge = hashtoZr(challengeBytes);
+        proofChallenge = hashtoZr(abi.encodePacked(sha256(challengeBytes)));
 
         // compare with responses
         // check correctness of Nym Proof
-        G1Point[] memory bases = [ ipk.h0, ipk.h[skIndex] ];
+        G1Point[] memory bases = new G1Point[](2);
+        bases[0] = ipk.h0;
+        bases[1] = ipk.h[skIndex];
         G1Point memory left = ecMul(proof.Nym, proofChallenge);
         left = ecMulVec(bases, proof.proofNym.responses, left);
         require(left.x == proof.proofNym.commitment.x, "Incorrect Nym proof");
         require(left.y == proof.proofNym.commitment.y, "Incorrect Nym proof");
 
-        return true;
+        // verify signature proof of knowledge
+        bool result = verifySignatureProof(proof, ipk, proofChallenge, sigMsgs);
+        return result;
     }
 
 
@@ -466,6 +531,24 @@ contract ZKATVerifier {
         r.y = toUint256(out, 32) % BASE_FIELD;
     }
 
+    /// Returns the negation of a point P(x,y) as (x, -y mod p)
+    function negate(G1Point memory p)
+    internal pure returns (G1Point memory)
+    {
+        if (p.x == 0 && p.y == 0) {
+            return G1Point(0, 0);
+        }
+        return G1Point(p.x, BASE_FIELD - (p.y % BASE_FIELD));
+    }
+
+    /// Elliptic curve subtraction: r = p1 - p2 = p1 + (-p2)
+    function ecSub(G1Point memory p1, G1Point memory p2)
+    internal view returns (G1Point memory r)
+    {
+        G1Point memory negP2 = negate(p2);
+        return ecAdd(p1, negP2);
+    }
+
     // Convenience routine to hash bytes to Zr element.
     function hashtoZr(bytes memory b) pure internal  returns (uint256) {
         uint256 r = toUint256(b,0);
@@ -474,15 +557,50 @@ contract ZKATVerifier {
     }
 
     // Convenience routine to compute scalar product over G1
-    function ecMulVec(G1Point[] memory points, uint256[] memory scalars, G1Point memory initial) pure internal returns (G1Point memory) {
+    function ecMulVec(G1Point[] memory points, uint256[] memory scalars, G1Point memory initial) internal view returns (G1Point memory) {
         require(points.length == scalars.length, "Vector sizes mismatch in scalar product");
 
         G1Point memory sum = initial;
         for(uint32 i=0; i < points.length; i++) {
-            initial = ecAdd(initial, ecMul(points[i], scalars[i]));
+            sum = ecAdd(sum, ecMul(points[i], scalars[i]));
         }
 
         return sum;
+    }
+
+    // Pairing check. Checks e(x1,y1).e(-x2,y2)=1 equivalent to e(x1,y1)=e(x2,y2)
+    function pairingEq(
+        G1Point memory x1,
+        G2Point memory y1,
+        G1Point memory x2,
+        G2Point memory y2
+    ) internal view returns (bool) {
+        G1Point memory negX2 = negate(x2);
+
+        uint256[12] memory input = [
+                        x1.x, x1.y,
+                            y1.x[0], y1.x[1], y1.y[0], y1.y[1],
+                        negX2.x, negX2.y,
+                            y2.x[0], y2.x[1], y2.y[0], y2.y[1]
+            ];
+
+        uint256[1] memory out;
+        bool success;
+
+        assembly {
+            success := staticcall(
+                not(0),
+                0x08,
+                input,
+                0x180, // 12 * 32 bytes = 384 bytes
+                out,
+                0x20
+            )
+        }
+        require(success, "pairing precompile failed");
+
+        // Precompile returns 1 if true, 0 otherwise
+        return out[0] == 1;
     }
 
     /// A test function to check scalar multiplication.
@@ -612,6 +730,29 @@ contract ZKATVerifier {
             }
         }
         inv = abi.decode(output, (uint256));
+    }
+
+    // This function is for debugging purposes. Sometimes we need to examine
+    // values (such as challenges from hash) computed during verification,
+    // if they match the ones in Go proofs. This converts uints to base 10 strings
+    // which can be exposed via revert.
+    function uintToString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
     }
 
 
