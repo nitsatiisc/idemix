@@ -8,17 +8,19 @@ contract ZKATVerifier {
     string public constant SEP = "||";
     // Sign label
     string public constant SIGN_LABEL = "sign";
-    // BN254 scalar field order (group order r)
+    // BN254 scalar field group order
     uint256 public constant GROUP_ORDER = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
-    // BN254 base field prime p (for on-curve check y^2 == x^3 + 3 mod p)
+    // BN254 base field prime
     uint256 public constant BASE_FIELD = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
 
-
+    // Representation of point on group G1
     struct G1Point { uint256 x; uint256 y; }
+
+    // Representation of point on group G2
     struct G2Point {
-        uint256[2] x;
-        uint256[2] y;
+        uint256[2] x;       // ximg, xreal
+        uint256[2] y;       // yimg, yreal
     }
 
 
@@ -87,7 +89,7 @@ contract ZKATVerifier {
         IPAProof ipaProof;
     }
 
-    // Define types for Idemix Signature verification
+    // Solidity mimics of datastructures in idemix implementation in IBM/idemix
     struct IssuerPublicKey {
         G1Point g;              // generator of G1
         G2Point k;              // generator of G2
@@ -122,8 +124,9 @@ contract ZKATVerifier {
         ProofG1 proofVC2;
     }
 
+    // this is the main idemix proof
     struct IdemixSignatureProof {
-        uint32 attrCount;               // number of attributes in credential (not counting sk)
+        uint32 attrCount;               // number of attributes in credential
         uint8[] revealedAttributes;     // mask denoting revealed attributes
         // In the above, for now we assume that sk goes with h[0], so attr[i] goes with h[i+1]
         G1Point Nym;                    // pseudonym for secret key
@@ -203,8 +206,9 @@ contract ZKATVerifier {
         return finalSigMsgs;
     }
 
-
-    function getChallengeBytes(IdemixSignatureProof memory proof,
+    // mimic of similar function in idemix. Gets sigma protocol challenge
+    function getChallengeBytes(
+        IdemixSignatureProof memory proof,
         uint8[] memory revealedMsgs,
         IssuerPublicKey memory ipk)
         internal pure returns (bytes memory) {
@@ -242,8 +246,8 @@ contract ZKATVerifier {
     ) internal view returns (bool) {
 
         // verify pairing
-        //bool result = pairingEq(proof.pokSignature.aPrime, ipk.w, proof.pokSignature.aBar, ipk.k);
-        //require(result, "pairing check failed");
+        bool result = pairingEq(proof.pokSignature.aPrime, ipk.w, proof.pokSignature.aBar, ipk.k);
+        require(result, "pairing check failed");
 
         // verify proofVC1 : (-e).A' + (r2).h_0 = \bar{A}/d
         G1Point memory comm1 = ecSub(proof.pokSignature.aBar, proof.pokSignature.d);
@@ -291,7 +295,7 @@ contract ZKATVerifier {
         return true;
     }
 
-
+    // The main function to verify idemix credential.
     function verifyIdeMixCred(
         IssuerPublicKey memory ipk,
         IdemixSignatureProof memory proof,
