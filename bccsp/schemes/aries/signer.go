@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 
 	"github.com/IBM/idemix/bccsp/types"
 	math "github.com/IBM/mathlib"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/aries-bbs-go/bbs"
+	idemixevm "github.com/nitsatiisc/zkatsolidity"
 )
 
 // AttributeIndexInNym is the index of the blinding factor of the attribute in a Nym commitment
@@ -605,6 +607,63 @@ func (s *Signer) Sign(
 	}
 
 	return sigBytes, m, nil
+}
+
+func (s *Signer) MarshalSignatureForEvm(key types.IssuerPublicKey, signature []byte) (*idemixevm.ZKATVerifierIdemixSignatureProof, error) {
+	ipk, ok := key.(*IssuerPublicKey)
+	if !ok {
+		return nil, fmt.Errorf("invalid issuer public key, expected *IssuerPublicKey, got [%T]", ipk)
+	}
+
+	lib := bbs.NewBBSLib(s.Curve)
+
+	sig := &Signature{}
+	err := proto.Unmarshal(signature, sig)
+	if err != nil {
+		return nil, fmt.Errorf("proto.Unmarshal error: %w", err)
+	}
+
+	payload, err := bbs.ParsePoKPayload(sig.MainSignature)
+	if err != nil {
+		return nil, fmt.Errorf("parse signature proof: %w", err)
+	}
+
+	signatureProof, err := lib.ParseSignatureProof(sig.MainSignature[payload.LenInBytes():])
+	if err != nil {
+		return nil, fmt.Errorf("parse signature proof: %w", err)
+	}
+
+	Nym, err := s.Curve.NewG1FromBytes(sig.Nym)
+	if err != nil {
+		return nil, fmt.Errorf("parse nym commit: %w", err)
+	}
+
+	// for now we only support standard idemix credentials with solidity.
+	nymProof, err := lib.ParseProofG1(sig.NymProof)
+	if err != nil {
+		return nil, fmt.Errorf("parse nym proof: %w", err)
+	}
+
+	soliditySig := idemixevm.ZKATVerifierIdemixSignatureProof{}
+	proof := signatureProof.ExportProof()
+	soliditySig.PokSignature = idemixevm.ZKATVerifierPoKSignatureProof{
+		APrime:   MakeG1Point(proof.Aprime),
+		ABar:     MakeG1Point(proof.Abar),
+		D:        MakeG1Point(proof.D),
+		ProofVC1: MakeProofG1(proof.ProofVC1),
+		ProofVC2: MakeProofG1(proof.ProofVC2),
+	}
+
+	soliditySig.Nym = MakeG1Point(Nym)
+	soliditySig.ProofNym = MakeProofG1(nymProof)
+	soliditySig.Nonce = new(big.Int).SetBytes(sig.Nonce)
+	soliditySig.AttrCount = uint32(payload.MessagesCount)
+	soliditySig.RevealedAttributes = make([]uint8, soliditySig.AttrCount)
+	for i := range payload.Revealed {
+		soliditySig.RevealedAttributes[payload.Revealed[i]] = 1
+	}
+
+	return &soliditySig, nil
 }
 
 // Verify verifies an idemix signature.
