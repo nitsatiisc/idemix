@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/IBM/idemix/bccsp/schemes/aries"
-	"github.com/IBM/idemix/bccsp/schemes/idemixevm"
 	"github.com/IBM/idemix/bccsp/types"
 	math "github.com/IBM/mathlib"
 	"github.com/ethereum/go-ethereum"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/aries-bbs-go/bbs"
+	idemixevm "github.com/nitsatiisc/zkatsolidity"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1476,8 +1476,10 @@ func TestEvmSigner(t *testing.T) {
 	err = signer.Verify(ipk, sig, []byte("silliness"), idemixAttrs, rhIndex, eidIndex, 0, nil, 0, types.Basic, nil)
 	assert.NoError(t, err)
 
-	sigSol, sig, _, err := signer.SignEvm(cred, sk, Nym, RNmy, ipk, idemixAttrs, []byte("silliness"), rhIndex, eidIndex, nil, types.Standard, nil)
+	sig, _, err = signer.Sign(cred, sk, Nym, RNmy, ipk, idemixAttrs, []byte("silliness"), rhIndex, eidIndex, nil, types.Standard, nil)
 	err = signer.Verify(ipk, sig, []byte("silliness"), idemixAttrs, rhIndex, eidIndex, 0, nil, 0, types.Basic, nil)
+	assert.NoError(t, err)
+	sigSol, err := signer.MarshalSignatureForEvm(ipk, sig)
 	assert.NoError(t, err)
 	ipkSol := aries.MakeIdemixIssuerKey(ipk.(*aries.IssuerPublicKey))
 	fmt.Printf("ipk.H.len() %v\n", len(ipkSol.H))

@@ -12,11 +12,11 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/IBM/idemix/bccsp/schemes/idemixevm"
 	"github.com/IBM/idemix/bccsp/types"
 	math "github.com/IBM/mathlib"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/aries-bbs-go/bbs"
+	idemixevm "github.com/nitsatiisc/zkatsolidity"
 )
 
 // AttributeIndexInNym is the index of the blinding factor of the attribute in a Nym commitment
@@ -220,21 +220,14 @@ func (s *Signer) getChallengeHash(
 		panic("programming error")
 	}
 
-	challengeZr := s.Curve.HashToZr(challengeBytes)
-	fmt.Println("challengZr[0] = ", new(big.Int).SetBytes(challengeZr.Bytes()).String())
-
 	// hash the main proof
 	challengeBytes = append(challengeBytes, pokSignature.ToBytes()...)
-	challengeZr = s.Curve.HashToZr(challengeBytes)
-	fmt.Println("challengZr[1] = ", new(big.Int).SetBytes(challengeZr.Bytes()).String())
 
 	// hash the Nym and t-value
 	challengeBytes = append(challengeBytes, Nym.Bytes()...)
 	if sigType != types.Smartcard && sigType != types.SmartcardNoNyms {
 		challengeBytes = append(challengeBytes, commitNym.Commitment.Bytes()...)
 	}
-	challengeZr = s.Curve.HashToZr(challengeBytes)
-	fmt.Println("challengZr[2] = ", new(big.Int).SetBytes(challengeZr.Bytes()).String())
 
 	// hash the NymEid and t-value
 	if sigType == types.EidNym || sigType == types.EidNymRhNym || sigType == types.Smartcard {
@@ -252,8 +245,6 @@ func (s *Signer) getChallengeHash(
 	proofNonce := bbs.ParseProofNonce(msg, s.Curve)
 	proofNonceBytes := proofNonce.ToBytes()
 	challengeBytes = append(challengeBytes, proofNonceBytes...)
-	challengeZr = s.Curve.HashToZr(challengeBytes)
-	fmt.Println("challengZr[3] = ", new(big.Int).SetBytes(challengeZr.Bytes()).String())
 
 	c := bbs.FrFromOKM(challengeBytes, s.Curve)
 
@@ -315,88 +306,6 @@ func (s *Signer) packageProof(
 	}
 
 	return proto.Marshal(sig)
-}
-
-func (s *Signer) packageProofForEVM(
-	attributes []types.IdemixAttribute,
-	Nym *math.G1,
-	proof *bbs.PoKOfSignatureProof,
-	proofNym *bbs.ProofG1,
-	nymEid *attributeCommitment,
-	proofNymEid *bbs.ProofG1,
-	rhNym *attributeCommitment,
-	proofRhNym *bbs.ProofG1,
-	cri *CredentialRevocationInformation,
-	nonce *math.Zr,
-) (*idemixevm.ZKATVerifierIdemixSignatureProof, error) {
-
-	signatureProof := &idemixevm.ZKATVerifierIdemixSignatureProof{}
-	exportProof := proof.ExportProof()
-	signatureProof.PokSignature = idemixevm.ZKATVerifierPoKSignatureProof{
-		APrime:   MakeG1Point(exportProof.Aprime),
-		ABar:     MakeG1Point(exportProof.Abar),
-		D:        MakeG1Point(exportProof.D),
-		ProofVC1: MakeProofG1(exportProof.ProofVC1),
-		ProofVC2: MakeProofG1(exportProof.ProofVC2),
-	}
-	payload := bbs.NewPoKPayload(len(attributes)+1, revealedAttributesIndex(attributes))
-
-	payloadBytes, err := payload.ToBytes()
-	if err != nil {
-		return nil, fmt.Errorf("derive proof: paylod to bytes: %w", err)
-	}
-
-	signatureProofBytes := append(payloadBytes, proof.ToBytes()...)
-
-	sig := &Signature{
-		MainSignature:     signatureProofBytes,
-		Nonce:             nonce.Bytes(),
-		Nym:               Nym.Bytes(),
-		RevocationEpochPk: cri.EpochPk,
-		RevocationPkSig:   cri.EpochPkSig,
-		Epoch:             cri.Epoch,
-		NonRevocationProof: &NonRevocationProof{
-			RevocationAlg: cri.RevocationAlg,
-		},
-	}
-
-	if proofNym != nil {
-		sig.NymProof = proofNym.ToBytes()
-	}
-
-	if nymEid != nil {
-		sig.NymEid = nymEid.comm.Bytes()
-		sig.NymEidProof = proofNymEid.ToBytes()
-		sig.NymEidIdx = int32(nymEid.index)
-	}
-
-	if rhNym != nil {
-		sig.NymRh = rhNym.comm.Bytes()
-		sig.NymRhProof = proofRhNym.ToBytes()
-		sig.NymRhIdx = int32(rhNym.index)
-	}
-
-	signatureProof.Nonce = MakeZr(nonce.Copy())
-	signatureProof.Nym = MakeG1Point(Nym.Copy())
-	if proofNym != nil {
-		signatureProof.ProofNym = MakeProofG1(proofNym)
-	} else {
-		signatureProof.ProofNym = MakeProofG1(&bbs.ProofG1{
-			Commitment: Nym.Copy(),
-			Responses:  []*math.Zr{s.Curve.NewZrFromInt(0)},
-		})
-	}
-	signatureProof.AttrCount = uint32(len(attributes) + 1)
-
-	revealedAttrMask := make([]uint8, signatureProof.AttrCount)
-	rAttr := revealedAttributesIndex(attributes)
-	for i := range rAttr {
-		revealedAttrMask[rAttr[i]] = 1
-	}
-
-	signatureProof.RevealedAttributes = revealedAttrMask
-
-	return signatureProof, nil
 }
 
 func (s *Signer) getCommitNym(
@@ -639,7 +548,6 @@ func (s *Signer) Sign(
 	///////////////////////
 
 	proofChallenge, Nonce := s.getChallengeHash(pokSignature, Nym, commitNym, nymEid, rhNym, msg, sigType)
-	fmt.Println("proofChallenge = ", new(big.Int).SetBytes(proofChallenge.Bytes()).String())
 
 	////////////////////////
 	// Generate responses //
@@ -668,7 +576,6 @@ func (s *Signer) Sign(
 	///////////////////
 
 	sigBytes, err := s.packageProof(attributes, Nym, proof, proofNym, nymEid, proofNymEid, rhNym, proofRhNym, cri, Nonce)
-	//sigEvm, err := s.packageProofForEVM(attributes, Nym, proof, proofNym, nymEid, proofNymEid, rhNym, proofRhNym, cri, Nonce)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -702,171 +609,61 @@ func (s *Signer) Sign(
 	return sigBytes, m, nil
 }
 
-// Sign creates a new idemix signature
-func (s *Signer) SignEvm(
-	credBytes []byte,
-	sk *math.Zr,
-	Nym *math.G1,
-	RNym *math.Zr,
-	key types.IssuerPublicKey,
-	attributes []types.IdemixAttribute,
-	msg []byte,
-	rhIndex, eidIndex int,
-	criRaw []byte,
-	sigType types.SignatureType,
-	metadata *types.IdemixSignerMetadata,
-) (*idemixevm.ZKATVerifierIdemixSignatureProof, []byte, *types.IdemixSignerMetadata, error) {
-
-	///////////////
-	// arg check //
-	///////////////
-
-	if (sigType == types.EidNym || sigType == types.Smartcard) &&
-		attributes[eidIndex].Type != types.IdemixHiddenAttribute {
-		return nil, nil, nil, fmt.Errorf("cannot create idemix signature: disclosure of enrollment ID requested for EidNym signature")
-	}
-
-	if (sigType == types.EidNymRhNym || sigType == types.Smartcard) &&
-		(attributes[eidIndex].Type != types.IdemixHiddenAttribute ||
-			attributes[rhIndex].Type != types.IdemixHiddenAttribute) {
-		return nil, nil, nil, fmt.Errorf("cannot create idemix signature: disclosure of enrollment ID or RH requested for EidNymRhNym signature")
-	}
-
+func (s *Signer) MarshalSignatureForEvm(key types.IssuerPublicKey, signature []byte) (*idemixevm.ZKATVerifierIdemixSignatureProof, error) {
 	ipk, ok := key.(*IssuerPublicKey)
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("invalid issuer public key, expected *IssuerPublicKey, got [%T]", ipk)
+		return nil, fmt.Errorf("invalid issuer public key, expected *IssuerPublicKey, got [%T]", ipk)
 	}
 
-	///////////////////////
-	// handle revocation //
-	///////////////////////
+	lib := bbs.NewBBSLib(s.Curve)
 
-	cri := &CredentialRevocationInformation{}
-	err := proto.Unmarshal(criRaw, cri)
+	sig := &Signature{}
+	err := proto.Unmarshal(signature, sig)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed unmarshalling credential revocation information [%w]", err)
+		return nil, fmt.Errorf("proto.Unmarshal error: %w", err)
 	}
 
-	// if we add any other revocation algorithm, we need to change the challenge hash
-	if cri.RevocationAlg != int32(types.AlgNoRevocation) {
-		return nil, nil, nil, fmt.Errorf("Unsupported revocation algorithm")
-	}
-
-	//////////////////////////////////
-	// Generate main PoK (1st move) //
-	//////////////////////////////////
-
-	credential := &Credential{}
-	err = proto.Unmarshal(credBytes, credential)
+	payload, err := bbs.ParsePoKPayload(sig.MainSignature)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("proto.Unmarshal failed [%w]", err)
+		return nil, fmt.Errorf("parse signature proof: %w", err)
 	}
 
-	pokSignature, messagesFr, err := s.getPoKOfSignature(credential, attributes, sk, ipk.PKwG, sigType, Nym, RNym)
+	signatureProof, err := lib.ParseSignatureProof(sig.MainSignature[payload.LenInBytes():])
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, fmt.Errorf("parse signature proof: %w", err)
 	}
 
-	//////////////////
-	// Handling Nym //
-	//////////////////
-
-	commitNym := s.getCommitNym(ipk, pokSignature, sigType, int(credential.SkPos))
-
-	///////////////////
-	// Handle NymEID //
-	///////////////////
-
-	// increment the index to cater for the index for `sk`
-	if eidIndex >= int(credential.SkPos) {
-		eidIndex++
-	}
-
-	nymEid, err := s.getAttributeCommitment(ipk, pokSignature, messagesFr[eidIndex].FR, eidIndex, nymEidAttrCommitmentEnabled(sigType), safeNymEidAuditDataAccess(metadata))
+	Nym, err := s.Curve.NewG1FromBytes(sig.Nym)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, fmt.Errorf("parse nym commit: %w", err)
 	}
 
-	///////////////////
-	// Handle RhNym //
-	///////////////////
-
-	// increment the index to cater for the index for `sk`
-	if rhIndex >= int(credential.SkPos) {
-		rhIndex++
-	}
-
-	rhNym, err := s.getAttributeCommitment(ipk, pokSignature, messagesFr[rhIndex].FR, rhIndex, rhAttrCommitmentEnabled(sigType), safeRhNymAuditDataAccess(metadata))
+	// for now we only support standard idemix credentials with solidity.
+	nymProof, err := lib.ParseProofG1(sig.NymProof)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, fmt.Errorf("parse nym proof: %w", err)
 	}
 
-	///////////////////////
-	// Get the challenge //
-	///////////////////////
-
-	proofChallenge, Nonce := s.getChallengeHash(pokSignature, Nym, commitNym, nymEid, rhNym, msg, sigType)
-	fmt.Println("proofChallenge = ", new(big.Int).SetBytes(proofChallenge.Bytes()).String())
-
-	////////////////////////
-	// Generate responses //
-	////////////////////////
-
-	// 1) main
-	proof := pokSignature.GenerateProof(proofChallenge)
-	// 2) Nym
-	var proofNym *bbs.ProofG1
-	if commitNym != nil {
-		proofNym = commitNym.GenerateProof(proofChallenge, []*math.Zr{RNym, sk})
-	}
-	// 3) NymEid
-	var proofNymEid *bbs.ProofG1
-	if nymEid != nil {
-		proofNymEid = nymEid.proof.GenerateProof(proofChallenge, []*math.Zr{nymEid.r, messagesFr[eidIndex].FR})
-	}
-	// 4) RhNym
-	var proofRhNym *bbs.ProofG1
-	if rhNym != nil {
-		proofRhNym = rhNym.proof.GenerateProof(proofChallenge, []*math.Zr{rhNym.r, messagesFr[rhIndex].FR})
+	soliditySig := idemixevm.ZKATVerifierIdemixSignatureProof{}
+	proof := signatureProof.ExportProof()
+	soliditySig.PokSignature = idemixevm.ZKATVerifierPoKSignatureProof{
+		APrime:   MakeG1Point(proof.Aprime),
+		ABar:     MakeG1Point(proof.Abar),
+		D:        MakeG1Point(proof.D),
+		ProofVC1: MakeProofG1(proof.ProofVC1),
+		ProofVC2: MakeProofG1(proof.ProofVC2),
 	}
 
-	///////////////////
-	// Package proof //
-	///////////////////
-
-	sigBytes, err := s.packageProof(attributes, Nym, proof, proofNym, nymEid, proofNymEid, rhNym, proofRhNym, cri, Nonce)
-	sigEvm, err := s.packageProofForEVM(attributes, Nym, proof, proofNym, nymEid, proofNymEid, rhNym, proofRhNym, cri, Nonce)
-	if err != nil {
-		return nil, nil, nil, err
+	soliditySig.Nym = MakeG1Point(Nym)
+	soliditySig.ProofNym = MakeProofG1(nymProof)
+	soliditySig.Nonce = new(big.Int).SetBytes(sig.Nonce)
+	soliditySig.AttrCount = uint32(payload.MessagesCount)
+	soliditySig.RevealedAttributes = make([]uint8, soliditySig.AttrCount)
+	for i := range payload.Revealed {
+		soliditySig.RevealedAttributes[payload.Revealed[i]] = 1
 	}
 
-	var m *types.IdemixSignerMetadata
-	if sigType == types.EidNym || sigType == types.Smartcard {
-		m = &types.IdemixSignerMetadata{
-			EidNymAuditData: &types.AttrNymAuditData{
-				Nym:  nymEid.comm,
-				Rand: nymEid.r,
-				Attr: messagesFr[eidIndex].FR,
-			},
-		}
-	}
-
-	if sigType == types.EidNymRhNym {
-		m = &types.IdemixSignerMetadata{
-			EidNymAuditData: &types.AttrNymAuditData{
-				Nym:  nymEid.comm,
-				Rand: nymEid.r,
-				Attr: messagesFr[eidIndex].FR,
-			},
-			RhNymAuditData: &types.AttrNymAuditData{
-				Nym:  rhNym.comm,
-				Rand: rhNym.r,
-				Attr: messagesFr[rhIndex].FR,
-			},
-		}
-	}
-
-	return sigEvm, sigBytes, m, nil
+	return &soliditySig, nil
 }
 
 // Verify verifies an idemix signature.

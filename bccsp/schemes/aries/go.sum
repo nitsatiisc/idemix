@@ -173,6 +173,8 @@ github.com/mitchellh/pointerstructure v1.2.0 h1:O+i9nHnXS3l/9Wu7r4NrEdwA2VFTicjU
 github.com/mitchellh/pointerstructure v1.2.0/go.mod h1:BRAsLI5zgXmw97Lf6s25bs8ohIXc3tViBH44KcwB2g4=
 github.com/nitsatiisc/aries-bbs-go v0.0.0-20251026133707-5593848f603e h1:+Jvo2O7Ut1eBIOS5OR5VUeA1dsfc2qYSn2ndK577jmE=
 github.com/nitsatiisc/aries-bbs-go v0.0.0-20251026133707-5593848f603e/go.mod h1:Citr0qYkpE1HYyA4aU4noAnBau1kfh6rk0IPcZXn0mw=
+github.com/nitsatiisc/zkatsolidity v0.0.0-20251031064531-fcbd6afe9df8 h1:3aX9j5Jdw+AycPccOj5qnixELgjbmq4jkbB6PLqBteM=
+github.com/nitsatiisc/zkatsolidity v0.0.0-20251031064531-fcbd6afe9df8/go.mod h1:Zpj5iqTtVfXbSwC5s7Dq0Yx+9MP60RAaHIfo9wtKcqw=
 github.com/nxadm/tail v1.4.4 h1:DQuhQpB1tVlglWS2hLQ5OV6B5r8aGxSrPc5Qo6uTN78=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
 github.com/olekukonko/tablewriter v0.0.5 h1:P2Ga83D34wi1o9J6Wh1mRuqd4mF/x/lgBS7N7AbDhec=

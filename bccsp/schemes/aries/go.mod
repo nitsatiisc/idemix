@@ -3,18 +3,18 @@ module github.com/IBM/idemix/bccsp/schemes/aries
 go 1.25.3
 
 require (
-	github.com/IBM/idemix/bccsp/schemes/idemixevm v0.0.0-00010101000000-000000000000
 	github.com/IBM/idemix/bccsp/schemes/weak-bb v0.0.0-20241220065751-dc7206770307
 	github.com/IBM/idemix/bccsp/types v0.0.0-20241220065751-dc7206770307
 	github.com/IBM/mathlib v0.0.3-0.20250709075152-a138079496c3
 	github.com/ethereum/go-ethereum v1.16.5
 	github.com/golang/protobuf v1.5.4
 	github.com/hyperledger/aries-bbs-go v0.0.0-20240528091251-e950615f2e45
+	github.com/nitsatiisc/zkatsolidity v0.0.0-20251031064531-fcbd6afe9df8
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 )
 
-replace github.com/IBM/idemix/bccsp/schemes/idemixevm => ../idemixevm
+//replace github.com/IBM/idemix/bccsp/schemes/idemixevm => ../idemixevm
 
 replace github.com/consensys/gnark-crypto => github.com/consensys/gnark-crypto v0.18.0
 

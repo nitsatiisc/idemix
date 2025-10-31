@@ -4,7 +4,6 @@ import (
 	"log"
 	"math/big"
 
-	"github.com/IBM/idemix/bccsp/schemes/idemixevm"
 	"github.com/IBM/idemix/bccsp/types"
 	math "github.com/IBM/mathlib"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -13,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/hyperledger/aries-bbs-go/bbs"
+	idemixevm "github.com/nitsatiisc/zkatsolidity"
 	"github.com/pkg/errors"
 )
 
